@@ -256,6 +256,22 @@ int SetupCallbacks(void)
 int main(void)
 {
     SceCtrlData pad;
+    SceCtrlData oldpad;
+    memset(&oldpad, 0, sizeof(oldpad));
+    
+    /* Background color cycling for dead pixel testing */
+    int bg_index = 0;
+    unsigned int bg_colors[] = {
+        0x00000000,  /* Black (default) */
+        0x000000FF,  /* Red */
+        0x0000FF00,  /* Green */
+        0x00FF0000,  /* Blue */
+        0x00FFFF00,  /* Cyan */
+        0x00FF00FF,  /* Magenta */
+        0x0000FFFF,  /* Yellow */
+        0x00FFFFFF   /* White */
+    };
+    int num_bg_colors = sizeof(bg_colors) / sizeof(bg_colors[0]);
     
     /* Set up callbacks */
     SetupCallbacks();
@@ -283,6 +299,7 @@ int main(void)
     printf("  Hello World!\n\n");
     printf("  Welcome Harris PSP world!\n\n");
     printf("  Press X to exit.\n\n");
+    printf("  Press Triangle to cycle background.\n\n");
     printf("  =====================================\n");
 
     /* --- 3–4 blank lines before specs --- */
@@ -366,11 +383,101 @@ int main(void)
         /* Read controller input */
         sceCtrlReadBufferPositive(&pad, 1);
 
+        /* Triangle button: cycle background color for dead pixel testing */
+        if ((pad.Buttons & PSP_CTRL_TRIANGLE) && !(oldpad.Buttons & PSP_CTRL_TRIANGLE)) {
+            bg_index = (bg_index + 1) % num_bg_colors;
+            
+            /* Clear screen with new background color */
+            pspDebugScreenSetBackColor(bg_colors[bg_index]);
+            pspDebugScreenClear();
+            pspDebugScreenSetXY(0, 0);
+            
+            /* Redraw everything */
+            printf("\n\n");
+            printf("  =====================================\n");
+            printf("       PSP CROWELIAN - HELLO WORLD     \n");
+            printf("  =====================================\n\n");
+            printf("  Hello World!\n\n");
+            printf("  Welcome Harris PSP world!\n\n");
+            printf("  Press X to exit.\n");
+            printf("  Press Triangle to cycle background.\n\n");
+            printf("  =====================================\n");
+            
+            printf("\n\n\n");
+            
+            /* Redraw specs block */
+            {
+                unsigned int dv = sceKernelDevkitVersion();
+                int fw_major = (dv >> 24) & 0xFF;
+                int fw_minor = (dv >> 16) & 0xFF;
+                int fw_rev   = dv & 0xFFFF;
+                int mode = 0, dw = 0, dh = 0;
+                sceDisplayGetMode(&mode, &dw, &dh);
+                void* topaddr2 = NULL; int bw2 = 0; int pf2 = 0;
+                sceDisplayGetFrameBuf(&topaddr2, &bw2, &pf2, PSP_DISPLAY_SETBUF_IMMEDIATE);
+                int cpu_clk = scePowerGetCpuClockFrequencyInt();
+                int bus_clk = scePowerGetBusClockFrequencyInt();
+                SceSize max_free = sceKernelMaxFreeMemSize();
+                SceSize tot_free = sceKernelTotalFreeMemSize();
+                int bat_exist = scePowerIsBatteryExist();
+                int on_ac = scePowerIsPowerOnline();
+                int charging = scePowerIsBatteryCharging();
+                int bat_pct = scePowerGetBatteryLifePercent();
+                
+                printf("  PSP Specs:\n");
+                printf("   - Firmware (devkit): %d.%d (rev 0x%04X)\n", fw_major, fw_minor, fw_rev);
+                printf("   - Display: %dx%d, bufferwidth=%d, pixelfmt=%d \n       (0=565,1=5551,2=4444,3=8888)\n", dw, dh, bw2, pf2);
+                printf("   - Clocks: CPU=%d MHz, BUS=%d MHz\n", cpu_clk, bus_clk);
+                printf("   - Memory: max free=%lu KB, total free=%lu KB\n",
+                       (unsigned long)(max_free/1024), (unsigned long)(tot_free/1024));
+                if (bat_exist)
+                    printf("   - Battery: %d%%, AC=%s, Charging=%s\n",
+                           bat_pct, on_ac ? "Yes" : "No", charging ? "Yes" : "No");
+                else
+                    printf("   - Battery: Not present (AC/emulator)\n");
+                
+                {
+                    int is_go = 0;
+                    SceUID dfd = sceIoDopen("ef0:/");
+                    if (dfd >= 0) { is_go = 1; sceIoDclose(dfd); }
+                    unsigned long free_kb = (unsigned long)(tot_free / 1024);
+                    int is_ppsspp = 0;
+                    if (free_kb > 100000UL || (!bat_exist && tot_free > 60*1024*1024)) {
+                        is_ppsspp = 1;
+                    }
+                    if (is_ppsspp) {
+                        printf("   - Model (guess): PPSSPP Emulator\n");
+                    } else if (is_go) {
+                        printf("   - Model (guess): PSP Go (N1000)\n");
+                    } else if (free_kb > 40000UL) {
+                        printf("   - Model (guess): 64MB model (PSP-2000/3000/E1000)\n");
+                    } else {
+                        printf("   - Model (guess): 32MB model (PSP-1000)\n");
+                    }
+                    if (!is_ppsspp) {
+                        printf("   - Note: Exact 2000 vs 3000 and LCD panel require\n");
+                        printf("           kernel tools (PSPident) for definitive info.\n");
+                    }
+                }
+            }
+            
+            /* Redraw warning icon */
+            draw_warning_icon_b64(240, 108, 24, 24);
+            
+            /* Show current background color name */
+            const char* color_names[] = {
+                "Black", "Red", "Green", "Blue", "Cyan", "Magenta", "Yellow", "White"
+            };
+            printf("\n  BG Color: %s (%d/%d)\n", color_names[bg_index], bg_index + 1, num_bg_colors);
+        }
+
         /* Check if X button is pressed */
         if(pad.Buttons & PSP_CTRL_CROSS)
         {
             break;
         }
+
+        oldpad = pad;
 
         /* Wait a bit before next check */
         sceDisplayWaitVblankStart();
