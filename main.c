@@ -99,8 +99,8 @@ static void blit_rgba8888_to_screen(int dstX, int dstY, int width, int height, c
                 const unsigned char* p = rgba + (y * width + x) * 4;
                 unsigned char r = p[0], g = p[1], b = p[2], a = p[3];
                 if (a == 0) continue; /* respect transparency */
-                /* PSP debug screen often expects BGR565 ordering in VRAM; swap R/B to avoid blue tint */
-                unsigned short rgb565 = (unsigned short)(((b & 0xF8) << 8) | ((g & 0xFC) << 3) | (r >> 3));
+                /* Compose standard RGB565; VRAM is little-endian but writing as 16-bit handles endianness */
+                unsigned short rgb565 = (unsigned short)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
                 row[sx] = rgb565;
             }
         }
@@ -115,8 +115,9 @@ static void blit_rgba8888_to_screen(int dstX, int dstY, int width, int height, c
                 const unsigned char* p = rgba + (y * width + x) * 4;
                 unsigned char r = p[0], g = p[1], b = p[2], a = p[3];
                 if (a == 0) continue;
-                unsigned int argb = ((unsigned int)a << 24) | ((unsigned int)r << 16) | ((unsigned int)g << 8) | (unsigned int)b;
-                row[sx] = argb;
+                /* Many setups expect 0xAABBGGRR in VRAM due to little-endian; swap R/B here */
+                unsigned int abgr = ((unsigned int)a << 24) | ((unsigned int)b << 16) | ((unsigned int)g << 8) | (unsigned int)r;
+                row[sx] = abgr;
             }
         }
     }
@@ -259,6 +260,14 @@ int main(void)
 
     /* Initialize the debug screen */
     pspDebugScreenInit();
+
+    /* Debug: report current framebuffer pixel format once */
+    {
+        void* topaddr = NULL; int bw = 0; int pf = 0;
+        if (sceDisplayGetFrameBuf(&topaddr, &bw, &pf, PSP_DISPLAY_SETBUF_IMMEDIATE) >= 0) {
+            printf("\n[debug] pixelformat=%d (0=565, 1=5551, 2=4444, 3=8888)\n", pf);
+        }
+    }
 
     /* Clear screen and set cursor to top-left */
     pspDebugScreenClear();

@@ -1,0 +1,16 @@
+# PSP build outputs
+*.o
+*.elf
+*.prx
+EBOOT.PBP
+PARAM.SFO
+
+# Editor/OS
+.DS_Store
+.vscode/
+.vscode-remote/
+.codespaces/
+.idea/
+
+# Logs
+*.log
