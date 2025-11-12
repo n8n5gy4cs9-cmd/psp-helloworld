@@ -1,6 +1,8 @@
 {
-  "name": "PSP Development",
-  "dockerFile": "Dockerfile",
+  "name": "PSP Development (prebuilt image)",
+  // Use the official prebuilt PSP dev image to avoid building the toolchain during container creation.
+  // This image contains a ready-to-use PSP toolchain and is the fastest/most reliable option.
+  "image": "pspdev/pspdev:latest",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -9,8 +11,8 @@
       ]
     }
   },
-  // Run the idempotent setup script to install the PSP toolchain inside the container.
-  // This is executed after the container is created so the heavy toolchain build is not part of image build.
-  "postCreateCommand": "bash /tmp/devcontainer-setup.sh && psp-gcc --version || true",
+  // Quick verification command; it won't fail the build if toolchain is missing in the image.
+    "postCreateCommand": "bash -lc \"if command -v psp-gcc >/dev/null 2>&1; then psp-gcc --version; else echo 'psp-gcc not found in image'; fi\"",
   "remoteUser": "root"
 }
+

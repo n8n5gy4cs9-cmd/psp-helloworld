@@ -39,8 +39,10 @@ RUN mkdir -p /workspaces
 WORKDIR /workspaces
 
 # Copy helper setup script (executed by devcontainer postCreateCommand) and make it executable
-COPY setup.sh /tmp/devcontainer-setup.sh
+# COPY uses the build context (repository root). The script lives in .devcontainer/, so reference it explicitly.
+COPY .devcontainer/setup.sh /tmp/devcontainer-setup.sh
 RUN chmod +x /tmp/devcontainer-setup.sh
 
 # Keep container running with a shell by default
 CMD ["/bin/bash"]
+
