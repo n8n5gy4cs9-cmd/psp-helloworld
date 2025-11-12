@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <psppower.h>
+#include <pspiofilemgr.h>
 
 PSP_MODULE_INFO("HelloWorld", 0, 1, 0);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER | THREAD_ATTR_VFPU);
@@ -326,6 +327,34 @@ int main(void)
                    bat_pct, on_ac ? "Yes" : "No", charging ? "Yes" : "No");
         else
             printf("   - Battery: Not present (AC/emulator)\n");
+
+        /* Best-effort model guess (user-mode heuristics) */
+        {
+            int is_go = 0;
+            SceUID dfd = sceIoDopen("ef0:/");
+            if (dfd >= 0) { is_go = 1; sceIoDclose(dfd); }
+
+            unsigned long free_kb = (unsigned long)(tot_free / 1024);
+            int is_ppsspp = 0;
+            /* PPSSPP often reports unusually high free memory or 0% battery */
+            if (free_kb > 100000UL || (!bat_exist && tot_free > 60*1024*1024)) {
+                is_ppsspp = 1;
+            }
+
+            if (is_ppsspp) {
+                printf("   - Model (guess): PPSSPP Emulator\n");
+            } else if (is_go) {
+                printf("   - Model (guess): PSP Go (N1000)\n");
+            } else if (free_kb > 40000UL) {
+                printf("   - Model (guess): 64MB model (PSP-2000/3000/E1000)\n");
+            } else {
+                printf("   - Model (guess): 32MB model (PSP-1000)\n");
+            }
+            if (!is_ppsspp) {
+                printf("   - Note: Exact 2000 vs 3000 and LCD panel require\n");
+                printf("           kernel tools (PSPident) for definitive info.\n");
+            }
+        }
     }
 
     /* Draw a yellow warning icon (generated -> base64 -> decoded) */
