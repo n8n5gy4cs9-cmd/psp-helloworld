@@ -9,6 +9,8 @@
       ]
     }
   },
-  "postCreateCommand": "psp-gcc --version",
+  // Run the idempotent setup script to install the PSP toolchain inside the container.
+  // This is executed after the container is created so the heavy toolchain build is not part of image build.
+  "postCreateCommand": "bash /tmp/devcontainer-setup.sh && psp-gcc --version || true",
   "remoteUser": "root"
 }
