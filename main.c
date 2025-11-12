@@ -7,12 +7,214 @@
 #include <pspdebug.h>
 #include <pspdisplay.h>
 #include <pspctrl.h>
+#include <string.h>
+#include <stdlib.h>
 
 PSP_MODULE_INFO("HelloWorld", 0, 1, 0);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER | THREAD_ATTR_VFPU);
 
 /* Define printf to use pspDebugScreenPrintf */
 #define printf pspDebugScreenPrintf
+
+/* ========================= Image + Base64 helpers ========================= */
+
+/* Helper for signed area (orientation) - defined at file scope for C89 compatibility */
+static int tri_sign(int ax,int ay,int bx,int by,int cx,int cy) {
+    return (ax - cx) * (by - cy) - (bx - cx) * (ay - cy);
+}
+
+/* Minimal Base64 encode/decode */
+static const char B64_TBL[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static char *b64_encode(const unsigned char *data, size_t len, size_t *out_len)
+{
+    size_t olen = 4 * ((len + 2) / 3);
+    char *out = (char*)malloc(olen + 1);
+    if (!out) return NULL;
+    size_t i = 0, j = 0;
+    while (i < len) {
+        unsigned int v = data[i++] << 16;
+        if (i < len) v |= data[i++] << 8;
+        if (i < len) v |= data[i++];
+        out[j++] = B64_TBL[(v >> 18) & 0x3F];
+        out[j++] = B64_TBL[(v >> 12) & 0x3F];
+        out[j++] = (i > (len + 1)) ? '=' : B64_TBL[(v >> 6) & 0x3F];
+        out[j++] = (i > len) ? '=' : B64_TBL[v & 0x3F];
+    }
+    out[j] = '\0';
+    if (out_len) *out_len = j;
+    return out;
+}
+
+static int b64_idx(char c) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+}
+
+static unsigned char* b64_decode(const char* in, size_t inlen, size_t* outlen) {
+    unsigned char* out = (unsigned char*)malloc((inlen / 4 + 1) * 3);
+    if (!out) return NULL;
+
+    size_t o = 0;
+    int val = 0, valb = -8;
+    for (size_t i = 0; i < inlen; i++) {
+        unsigned char c = (unsigned char)in[i];
+        if (c == '=') break;
+        int d = b64_idx((char)c);
+        if (d < 0) continue; /* skip whitespace/invalid */
+        val = (val << 6) | d;
+        valb += 6;
+        if (valb >= 0) {
+            out[o++] = (unsigned char)((val >> valb) & 0xFF);
+            valb -= 8;
+        }
+    }
+    if (outlen) *outlen = o;
+    return out;
+}
+
+/* Draw an RGBA8888 image to current framebuffer, converting to destination format if needed */
+static void blit_rgba8888_to_screen(int dstX, int dstY, int width, int height, const unsigned char* rgba, size_t rgba_len)
+{
+    if (!rgba || rgba_len < (size_t)(width * height * 4)) return;
+
+    void* topaddr = NULL;
+    int bufferwidth = 0;
+    int pixelformat = 0;
+
+    if (sceDisplayGetFrameBuf(&topaddr, &bufferwidth, &pixelformat, PSP_DISPLAY_SETBUF_IMMEDIATE) < 0) return;
+    if (!topaddr || bufferwidth <= 0) return;
+
+    if (pixelformat == PSP_DISPLAY_PIXEL_FORMAT_565) {
+        volatile unsigned short* vram = (volatile unsigned short*)topaddr;
+        for (int y = 0; y < height; y++) {
+            int sy = dstY + y; if (sy < 0 || sy >= 272) continue;
+            volatile unsigned short* row = vram + (sy * bufferwidth);
+            for (int x = 0; x < width; x++) {
+                int sx = dstX + x; if (sx < 0 || sx >= 480) continue;
+                const unsigned char* p = rgba + (y * width + x) * 4;
+                unsigned char r = p[0], g = p[1], b = p[2], a = p[3];
+                if (a == 0) continue; /* respect transparency */
+                /* PSP debug screen often expects BGR565 ordering in VRAM; swap R/B to avoid blue tint */
+                unsigned short rgb565 = (unsigned short)(((b & 0xF8) << 8) | ((g & 0xFC) << 3) | (r >> 3));
+                row[sx] = rgb565;
+            }
+        }
+    } else {
+        /* Default to 8888 (0xAARRGGBB) */
+        volatile unsigned int* vram = (volatile unsigned int*)topaddr;
+        for (int y = 0; y < height; y++) {
+            int sy = dstY + y; if (sy < 0 || sy >= 272) continue;
+            volatile unsigned int* row = vram + (sy * bufferwidth);
+            for (int x = 0; x < width; x++) {
+                int sx = dstX + x; if (sx < 0 || sx >= 480) continue;
+                const unsigned char* p = rgba + (y * width + x) * 4;
+                unsigned char r = p[0], g = p[1], b = p[2], a = p[3];
+                if (a == 0) continue;
+                unsigned int argb = ((unsigned int)a << 24) | ((unsigned int)r << 16) | ((unsigned int)g << 8) | (unsigned int)b;
+                row[sx] = argb;
+            }
+        }
+    }
+}
+
+/* Generate a simple yellow warning triangle with black border and exclamation mark into RGBA8888 buffer */
+static unsigned char* gen_warning_icon_rgba(int w, int h)
+{
+    if (w <= 0 || h <= 0) return NULL;
+    size_t sz = (size_t)w * h * 4;
+    unsigned char* buf = (unsigned char*)malloc(sz);
+    if (!buf) return NULL;
+    memset(buf, 0, sz);
+
+    /* Triangle vertices */
+    int x0 = w / 2, y0 = 1;       /* top */
+    int x1 = 1,     y1 = h - 2;   /* bottom-left */
+    int x2 = w - 2, y2 = h - 2;   /* bottom-right */
+
+    /* Fill triangle */
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            int p = (y * w + x) * 4;
+            int s1 = tri_sign(x, y, x1, y1, x0, y0);
+            int s2 = tri_sign(x, y, x2, y2, x1, y1);
+            int s3 = tri_sign(x, y, x0, y0, x2, y2);
+            int has_neg = (s1 < 0) || (s2 < 0) || (s3 < 0);
+            int has_pos = (s1 > 0) || (s2 > 0) || (s3 > 0);
+            int inside = !(has_neg && has_pos);
+            if (inside) {
+                /* Check border by testing 4-neighborhood */
+                int border = 0;
+                int nx[4] = {x-1, x+1, x, x};
+                int ny[4] = {y, y, y-1, y+1};
+                for (int k=0;k<4;k++) {
+                    int xx = nx[k], yy = ny[k];
+                    if (xx < 0 || yy < 0 || xx >= w || yy >= h) { border = 1; break; }
+                    int ss1 = tri_sign(xx, yy, x1, y1, x0, y0);
+                    int ss2 = tri_sign(xx, yy, x2, y2, x1, y1);
+                    int ss3 = tri_sign(xx, yy, x0, y0, x2, y2);
+                    int n_has_neg = (ss1 < 0) || (ss2 < 0) || (ss3 < 0);
+                    int n_has_pos = (ss1 > 0) || (ss2 > 0) || (ss3 > 0);
+                    int n_inside = !(n_has_neg && n_has_pos);
+                    if (!n_inside) { border = 1; break; }
+                }
+                if (border) {
+                    /* black border */
+                    buf[p+0] = 0; buf[p+1] = 0; buf[p+2] = 0; buf[p+3] = 255;
+                } else {
+                    /* yellow fill */
+                    buf[p+0] = 255; buf[p+1] = 208; buf[p+2] = 0; buf[p+3] = 255;
+                }
+            }
+        }
+    }
+
+    /* Exclamation mark */
+    int cx = w/2;
+    int lineTop = (int)(h * 0.35f);
+    int lineBot = (int)(h * 0.68f);
+    for (int y = lineTop; y <= lineBot; y++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            int x = cx + dx; if (x < 0 || x >= w || y < 0 || y >= h) continue;
+            int p = (y * w + x) * 4;
+            buf[p+0] = 0; buf[p+1] = 0; buf[p+2] = 0; buf[p+3] = 255;
+        }
+    }
+    /* Dot */
+    int dy = (int)(h * 0.80f);
+    for (int y = dy; y < dy + 2 && y < h; y++) {
+        for (int x = cx-1; x <= cx; x++) {
+            if (x < 0 || x >= w) continue;
+            int p = (y * w + x) * 4;
+            buf[p+0] = 0; buf[p+1] = 0; buf[p+2] = 0; buf[p+3] = 255;
+        }
+    }
+
+    return buf;
+}
+
+/* Convenience: generate -> base64 -> decode -> blit */
+static void draw_warning_icon_b64(int x, int y, int w, int h)
+{
+    unsigned char *rgba = gen_warning_icon_rgba(w, h);
+    if (!rgba) return;
+    size_t img_sz = (size_t)w * h * 4;
+    size_t b64_len = 0;
+    char *b64 = b64_encode(rgba, img_sz, &b64_len);
+    if (!b64) { free(rgba); return; }
+    size_t dec_len = 0;
+    unsigned char *decoded = b64_decode(b64, b64_len, &dec_len);
+    if (decoded && dec_len == img_sz) {
+        blit_rgba8888_to_screen(x, y, w, h, decoded, dec_len);
+    }
+    if (decoded) free(decoded);
+    free(b64);
+    free(rgba);
+}
 
 /* Exit callback */
 int exit_callback(int arg1, int arg2, void *common)
@@ -71,6 +273,9 @@ int main(void)
     printf("  Welcome to PSP homebrew development!\n\n");
     printf("  Press X to exit.\n\n");
     printf("  =====================================\n");
+
+    /* Draw a yellow warning icon (generated -> base64 -> decoded) */
+    draw_warning_icon_b64(2, 2, 24, 24);
 
     /* Main loop */
     while(1)
