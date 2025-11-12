@@ -20,7 +20,6 @@ The **easiest and most reliable** solution - develop in the cloud:
    git commit -m "Initial PSP Hello World"
    ```
 
-**username: n8n5gy4cs9-cmd**
 2. **Push to GitHub** (create a new repository on github.com first):
    ```bash
    git remote add origin https://github.com/YOUR_USERNAME/psp-helloworld.git
