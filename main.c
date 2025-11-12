@@ -9,6 +9,7 @@
 #include <pspctrl.h>
 #include <string.h>
 #include <stdlib.h>
+#include <psppower.h>
 
 PSP_MODULE_INFO("HelloWorld", 0, 1, 0);
 PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER | THREAD_ATTR_VFPU);
@@ -283,8 +284,52 @@ int main(void)
     printf("  Press X to exit.\n\n");
     printf("  =====================================\n");
 
+    /* --- 3–4 blank lines before specs --- */
+    printf("\n\n\n");
+
+    /* PSP specs (user-mode accessible) */
+    {
+        /* Firmware (devkit) version */
+        unsigned int dv = sceKernelDevkitVersion();
+        int fw_major = (dv >> 24) & 0xFF;
+        int fw_minor = (dv >> 16) & 0xFF;
+        int fw_rev   = dv & 0xFFFF;
+
+        /* Display info */
+        int mode = 0, dw = 0, dh = 0;
+        sceDisplayGetMode(&mode, &dw, &dh);
+        void* topaddr2 = NULL; int bw2 = 0; int pf2 = 0;
+        sceDisplayGetFrameBuf(&topaddr2, &bw2, &pf2, PSP_DISPLAY_SETBUF_IMMEDIATE);
+
+        /* CPU/bus clocks */
+        int cpu_clk = scePowerGetCpuClockFrequencyInt();
+        int bus_clk = scePowerGetBusClockFrequencyInt();
+
+        /* Memory (user-mode heap) */
+        SceSize max_free = sceKernelMaxFreeMemSize();
+        SceSize tot_free = sceKernelTotalFreeMemSize();
+
+        /* Battery status */
+        int bat_exist = scePowerIsBatteryExist();
+        int on_ac     = scePowerIsPowerOnline();
+        int charging  = scePowerIsBatteryCharging();
+        int bat_pct   = scePowerGetBatteryLifePercent();
+
+        printf("  PSP Specs:\n");
+        printf("   - Firmware (devkit): %d.%d (rev 0x%04X)\n", fw_major, fw_minor, fw_rev);
+        printf("   - Display: %dx%d, bufferwidth=%d, pixelfmt=%d \n       (0=565,1=5551,2=4444,3=8888)\n", dw, dh, bw2, pf2);
+        printf("   - Clocks: CPU=%d MHz, BUS=%d MHz\n", cpu_clk, bus_clk);
+        printf("   - Memory: max free=%lu KB, total free=%lu KB\n",
+               (unsigned long)(max_free/1024), (unsigned long)(tot_free/1024));
+        if (bat_exist)
+            printf("   - Battery: %d%%, AC=%s, Charging=%s\n",
+                   bat_pct, on_ac ? "Yes" : "No", charging ? "Yes" : "No");
+        else
+            printf("   - Battery: Not present (AC/emulator)\n");
+    }
+
     /* Draw a yellow warning icon (generated -> base64 -> decoded) */
-    draw_warning_icon_b64(120, 100, 24, 24);
+    draw_warning_icon_b64(240, 108, 24, 24);
 
     /* Main loop */
     while(1)
