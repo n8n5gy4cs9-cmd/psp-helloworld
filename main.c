@@ -276,15 +276,15 @@ int main(void)
     /* Display Hello World message */
     printf("\n\n");
     printf("  =====================================\n");
-    printf("       PSP HOMEBREW - HELLO WORLD     \n");
+    printf("       PSP CROWELIAN - HELLO WORLD     \n");
     printf("  =====================================\n\n");
     printf("  Hello World!\n\n");
-    printf("  Welcome to PSP homebrew development!\n\n");
+    printf("  Welcome Harris PSP world!\n\n");
     printf("  Press X to exit.\n\n");
     printf("  =====================================\n");
 
     /* Draw a yellow warning icon (generated -> base64 -> decoded) */
-    draw_warning_icon_b64(2, 2, 24, 24);
+    draw_warning_icon_b64(120, 100, 24, 24);
 
     /* Main loop */
     while(1)
