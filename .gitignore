@@ -1,9 +1,9 @@
 # PSP build outputs
-*.o
-*.elf
-*.prx
-EBOOT.PBP
-PARAM.SFO
+## *.o
+## *.elf
+## *.prx
+## EBOOT.PBP
+## PARAM.SFO
 
 # Editor/OS
 .DS_Store
